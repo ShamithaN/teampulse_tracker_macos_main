@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>TeamPulse Tracker</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #334155; }
+      h2 { margin-bottom: 20px; font-weight: 700; color: #0f172a; }
+      input { padding: 12px; margin: 8px 0; width: 80%; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; transition: all 0.2s; }
+      input:focus { border-color: #4f46e5; ring: 2px solid #e0e7ff; }
+      button { padding: 12px 24px; background-color: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 16px; font-weight: 600; transition: background 0.2s; width: 85%; }
+      button:hover { background-color: #4338ca; }
+      #status { margin-top: 15px; font-size: 13px; color: #ef4444; min-height: 20px; }
+      .loader { border: 3px solid #f3f3f3; border-top: 3px solid #4f46e5; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: none; margin: 0 auto; }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <h2>TeamPulse Tracker</h2>
+    <input id="user" type="text" placeholder="Username" />
+    <input id="pass" type="password" placeholder="Password" />
+    <button id="loginBtn" onclick="login()">Login & Start</button>
+    <div id="loader" class="loader"></div>
+    <p id="status"></p>
+
+    <script>
+      const { ipcRenderer } = require('electron');
+
+      function login() {
+        const u = document.getElementById('user').value;
+        const p = document.getElementById('pass').value;
+        
+        if(!u || !p) {
+          document.getElementById('status').innerText = "Please enter username and password";
+          return;
+        }
+
+        document.getElementById('status').innerText = "";
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('loginBtn').style.display = 'none';
+        
+        ipcRenderer.send('login-attempt', {u, p});
+      }
+
+      ipcRenderer.on('login-fail', (event, msg) => {
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('loginBtn').style.display = 'block';
+        document.getElementById('status').innerText = msg;
+      });
+
+      ipcRenderer.on('login-success', (event, name) => {
+        document.body.innerHTML = `<h3 style="color:#059669">Tracking Active</h3><p>Logged in as ${name}</p><p style="font-size:12px; color:#64748b">You can minimize this window.</p>`;
+      });
+    </script>
+  </body>
+</html>
