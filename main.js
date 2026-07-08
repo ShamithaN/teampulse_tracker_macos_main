@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, powerMonitor, shell, Tray, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, powerMonitor, shell, Tray, Menu } = require('electron');
 const path = require('path');
 
 // --- CONFIGURATION ---
-const API_BASE = "https://teampulse-api-backend-prod.azurewebsites.net/api"; 
+const DEFAULT_API_BASE = "https://teampulse-api-backend-prod.azurewebsites.net/api";
 const WEB_APP_URL = "https://teampulse-app.vercel.app";
 
 let mainWindow;
@@ -10,10 +10,52 @@ let tray = null;
 let currentUser = null;
 let heartbeatInterval;
 let isQuitting = false;
+let currentApiBase = normalizeApiBase(process.env.TEAMPULSE_API_BASE);
+
+function normalizeApiBase(apiBase) {
+  return (apiBase || DEFAULT_API_BASE).trim().replace(/\/$/, '');
+}
+
+async function postJson(apiBase, endpoint, payload) {
+  const baseUrl = normalizeApiBase(apiBase);
+  const response = await fetch(`${baseUrl}${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const text = await response.text();
+  let data = {};
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Server returned invalid JSON (${response.status})`);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || `Server returned status ${response.status}`);
+  }
+
+  return data;
+}
+
+function getConnectionErrorMessage(error) {
+  if (error.cause && error.cause.code === 'ENOTFOUND') {
+    return 'TeamPulse server address was not found. Please try again later.';
+  }
+
+  return 'Cannot connect to TeamPulse server. Please try again later.';
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 400, height: 600,
+    width: 430, height: 650,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: { nodeIntegration: true, contextIsolation: false },
     autoHideMenuBar: true, resizable: false
@@ -34,14 +76,13 @@ function createTray() {
 
 // --- AZURE LOGIN ---
 ipcMain.on('login-attempt', async (event, { u, p }) => {
+  const loginApiBase = currentApiBase;
+
   try {
-    const response = await fetch(`${API_BASE}/login`, {
-      method: 'POST',
-      body: JSON.stringify({ username: u, password: p })
-    });
-    const result = await response.json();
+    const result = await postJson(loginApiBase, '/login', { username: u, password: p });
 
     if (result.success) {
+      currentApiBase = loginApiBase;
       currentUser = result.user;
       event.reply('login-success', currentUser.fullname);
       startHeartbeat();
@@ -49,10 +90,11 @@ ipcMain.on('login-attempt', async (event, { u, p }) => {
       shell.openExternal(`${WEB_APP_URL}/login?token=${currentUser.sessionToken}`);
       setTimeout(() => mainWindow.hide(), 1500);
     } else {
-      event.reply('login-fail', result.message);
+      event.reply('login-fail', result.message || 'Invalid username or password');
     }
   } catch (e) {
-    event.reply('login-fail', 'Server Connection Failed');
+    console.error(`Login failed for API ${loginApiBase}:`, e);
+    event.reply('login-fail', getConnectionErrorMessage(e));
   }
 });
 
@@ -67,11 +109,8 @@ function startHeartbeat() {
     const status = idleSeconds > 60 ? 'Idle' : 'Online';
 
     try {
-      await fetch(`${API_BASE}/updateStatus`, {
-        method: 'POST',
-        body: JSON.stringify({ userId: currentUser.id, status: status })
-      });
-    } catch (e) { console.log("Heartbeat failed"); }
+      await postJson(currentApiBase, '/updateStatus', { userId: currentUser.id, status: status });
+    } catch (e) { console.log("Heartbeat failed", e); }
   }, 30000); // Check every 30 seconds
 }
 
